@@ -1,0 +1,132 @@
+# ---------------------------------------------------------------------------
+# ARENA FEATURES — configurable functional elements attached to the fixed
+# topology (topology.yaml). This is the file that changes if the organizers
+# move S1-S6, DZ, or P1-P3 at a venue. THE PLANNER NEVER HARDCODES THESE
+# COORDINATES; it only ever reads them through arena_loader.py.
+#
+# Current values = official baseline from Arena_Spec_Multi_Robot_Warehouse
+# 2.docx, Section 3 ("Fixed coordinates" table). Treat this file as the
+# reference configuration, replaceable by:
+#   (a) an updated YAML if organizers publish new numbers, or
+#   (b) an auto-generated runtime_features.yaml from AprilTag calibration
+#       (see Mode B discussion — future work, not yet implemented).
+#
+# Each station has:
+#   dock              - navigable lane waypoint (robot stops here)
+#   lane              - which named lane (from topology.yaml) it attaches to;
+#                       resolves ambiguity near the central junction
+#   block / face      - which keep-out block the alcove is cut into, and
+#                       which face of it (metadata, for pick-mechanism aim)
+#   approach_heading  - direction robot faces while docked (into the block)
+#   alcove_depth_cm   - how far the pick mechanism must reach laterally
+#                       (spec: alcove is 20cm wide x 10cm deep)
+#
+# Parking / DZ are dead-end, reverse-only bays (spec section 2):
+#   bay               - the single fixed bay-center coordinate
+#   depth_cm          - 30cm for parking, 60cm for DZ (informational)
+# ---------------------------------------------------------------------------
+
+stations:
+  - id: S1
+    dock: {x: 150, y: 240}
+    lane: LANE_CROSS_V
+    block: A
+    face: east
+    approach_heading: west
+    alcove_depth_cm: 10
+    note: "Faces opposite wall from S2 on same lane - nose-to-nose risk if approached from opposite ends."
+
+  - id: S2
+    dock: {x: 150, y: 90}
+    lane: LANE_CROSS_V
+    block: D
+    face: west
+    approach_heading: east
+    alcove_depth_cm: 10
+    note: "Faces opposite wall from S1 on same lane."
+
+  - id: S3
+    dock: {x: 50, y: 150}
+    lane: LANE_CROSS_H
+    block: A
+    face: south
+    approach_heading: south
+    alcove_depth_cm: 10
+
+  - id: S4
+    dock: {x: 240, y: 150}
+    lane: LANE_CROSS_H
+    block: D
+    face: north
+    approach_heading: north
+    alcove_depth_cm: 10
+
+  - id: S5
+    dock: {x: 190, y: 290}
+    lane: LANE_TOP
+    block: B
+    face: north
+    approach_heading: south
+    alcove_depth_cm: 10
+    note: "Ring-only, never enters the cross."
+
+  - id: S6
+    dock: {x: 10, y: 200}
+    lane: LANE_LEFT
+    block: A
+    face: west
+    approach_heading: east
+    alcove_depth_cm: 10
+    note: "Ring-only, never enters the cross."
+
+dispatch_zone:
+  id: DZ
+  bay: {x: 70, y: 50}
+  lane: LANE_BOTTOM
+  block: C
+  face: south
+  reverse_only: true
+  capacity: 1
+  depth_cm: 60
+  note: "Every order passes through this one bay - hard throughput ceiling."
+
+parking:
+  - id: P1
+    bay: {x: 50, y: 265}
+    lane: LANE_TOP
+    block: A
+    face: north
+    reverse_only: true
+    depth_cm: 30
+    note: "Contends with P2 on top ring from t=0."
+
+  - id: P2
+    bay: {x: 250, y: 265}
+    lane: LANE_TOP
+    block: B
+    face: north
+    reverse_only: true
+    depth_cm: 30
+    note: "Contends with P1 on top ring from t=0."
+
+  - id: P3
+    bay: {x: 210, y: 35}
+    lane: LANE_BOTTOM
+    block: D
+    face: south
+    reverse_only: true
+    depth_cm: 30
+
+# Robot initial/home assignments — runtime-adjacent but declared here since
+# it's part of the "which feature does each robot start at" configuration.
+robots:
+  - id: R1
+    home: P1
+  - id: R2
+    home: P2
+  - id: R3
+    home: P3
+
+cube:
+  size_cm: [4, 5]
+  qr_on_at_least_one_face: true

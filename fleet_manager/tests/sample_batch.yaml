@@ -1,0 +1,54 @@
+# ---------------------------------------------------------------------------
+# Official sample batch from Arena_Spec_Multi_Robot_Warehouse 2.docx,
+# Section 7. This is the spec's own worked example, including the analysis
+# of what a "strong" vs "weak" plan does. Kept as data so it can be fed into
+# the (future) task allocator + simulator as an automated regression test,
+# without hardcoding it into any planning logic.
+#
+# All three robots start parked and idle at t=0, at their configured homes
+# (see features.yaml: R1->P1, R2->P2, R3->P3).
+# ---------------------------------------------------------------------------
+
+orders:
+  - order_id: O1
+    released_at: 0
+    station: S5
+    destination: DZ
+  - order_id: O2
+    released_at: 0
+    station: S1
+    destination: DZ
+  - order_id: O3
+    released_at: 2
+    station: S2
+    destination: DZ
+  - order_id: O4
+    released_at: 8
+    station: S3
+    destination: DZ
+  - order_id: O5
+    released_at: 9
+    station: S6
+    destination: DZ
+
+# Notes from the spec's own analysis of this batch (Section 7), kept for
+# reference when building the task allocator / traffic manager later:
+notes:
+  - "R1 and R2 both parked on top ring. Naive nearest-robot assignment puts
+     them into the same vertical-lane approach for O2/O3 from opposite ends
+     -- this is the deliberate trap in the batch."
+  - "R3, parked at bottom (P3), is much better placed for S2 (O3) and is
+     sitting idle at t=0 -- a good allocator notices this."
+  - "Pick duration must be modeled as an interval lane reservation, not a
+     point occupancy -- station dwell blocks the whole lane both directions."
+  - "O1 (S5) and O5 (S6) are ring-only orders, never touch the cross --
+     schedule these to keep robots productive while the cross is congested."
+  - "DZ is the real throughput ceiling: one bay, one robot at a time, entry
+     + drop + reverse-out per delivery."
+  - "O4 and O5 arrive late (t=8, t=9) -- a greedy/irrevocable assignment
+     policy will starve them while robots finish earlier work. This is
+     the fairness check."
+  - "Suggested strong-plan shape: O2 -> a top-parked robot; O3 -> R3 from
+     the south (opposite end, no collision); O1 -> the other top robot as
+     ring-only work; O5 -> whichever robot clears first; stagger DZ
+     arrivals so the bay is never contested."

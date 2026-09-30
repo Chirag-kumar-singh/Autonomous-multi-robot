@@ -1,0 +1,51 @@
+# ---------------------------------------------------------------------------
+# ARENA TOPOLOGY — the physical structure that is fixed forever, at every
+# venue, regardless of how features (stations/DZ/parking) are configured.
+#
+# Per spec: "The arena is identical at every venue, so every dimension here
+# is fixed." This file encodes ONLY that fixed geometry: overall size,
+# lane width, block size/count, and the resulting lane-network skeleton
+# (perimeter ring + central cross + central junction).
+#
+# It contains NO knowledge of S1-S6, DZ, or P1-P3. Those live in
+# features.yaml and are attached onto this skeleton by arena_loader.py.
+# ---------------------------------------------------------------------------
+
+arena:
+  width_cm: 300
+  height_cm: 300
+
+robot:
+  footprint_cm: 15    # max 15x15 per spec
+  height_cm_max: 20
+
+lane:
+  width_cm: 20
+
+# Four 120x120 keep-out blocks, set 20cm in from the outer boundary.
+# Band decomposition on both axes: 20 | 120 | 20 | 120 | 20 = 300.
+# Labels A/B/C/D correspond to top-left/top-right/bottom-left/bottom-right,
+# matching the spec's own prose references (e.g. "Block A", "Block D").
+blocks:
+  A: {x: [20, 140], y: [160, 280]}   # top-left
+  B: {x: [160, 280], y: [160, 280]}  # top-right
+  C: {x: [20, 140], y: [20, 140]}    # bottom-left
+  D: {x: [160, 280], y: [20, 140]}   # bottom-right
+
+# The single 20x20 central junction cell — hard capacity-1 bottleneck.
+central_junction:
+  id: JCT_CENTER
+  capacity: 1
+
+# Named lane bands, used by features.yaml to declare which lane a feature
+# attaches to (so the loader can disambiguate near-center features like
+# S1 vs S2, which are geometrically close but on opposite lane approaches).
+perimeter_lanes:
+  - id: LANE_BOTTOM
+  - id: LANE_TOP
+  - id: LANE_LEFT
+  - id: LANE_RIGHT
+
+cross_lanes:
+  - id: LANE_CROSS_V   # vertical strip through the junction
+  - id: LANE_CROSS_H   # horizontal strip through the junction

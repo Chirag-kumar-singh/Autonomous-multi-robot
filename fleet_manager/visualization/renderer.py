@@ -49,7 +49,7 @@ from pathlib import Path
 from typing import Callable, Optional, Tuple
 
 FM = Path(__file__).parent.parent
-for sub in ("arena", "traffic", "planning", "simulation", "coordination"):
+for sub in ("arena", "traffic", "planning", "simulation", "coordination", "allocation"):
     sys.path.insert(0, str(FM / sub))
 
 import yaml
@@ -58,6 +58,7 @@ from arena_loader import load_arena_config
 from graph import ArenaGraph
 from world import World
 from robot import Task, RobotState
+from allocator import FleetAllocator, Order, RobotSnapshot, order_to_tasks
 
 STATE_COLORS = {
     RobotState.IDLE: "#888888",
@@ -105,6 +106,58 @@ def build_world_from_scenario(scenario_path: str) -> Tuple[World, dict]:
                 purpose=t.get("purpose", "transit"),
                 label=t.get("label", ""),
             ))
+
+    # `stations:`/`orders:` shorthand -- MUST stay in sync with
+    # simulator.run_scenario()'s identical handling (including optional
+    # per-order `robot:` pinning), or the renderer silently loads fewer
+    # tasks than the headless simulator does for the same file.
+    station_shorthand = scenario.get("stations", [])
+    expanded_orders = []
+    for i, s in enumerate(station_shorthand):
+        if isinstance(s, dict):
+            expanded_orders.append({
+                "order_id": f"O{i + 1}", "station": s["station"],
+                "robot": s.get("robot"),
+            })
+        else:
+            expanded_orders.append({"order_id": f"O{i + 1}", "station": s})
+
+    order_specs = scenario.get("orders", []) + expanded_orders
+    if order_specs:
+        allocator = FleetAllocator(
+            graph,
+            w_travel=scenario.get("allocator_w_travel", 1.0),
+            w_queue=scenario.get("allocator_w_queue", 1.0),
+        )
+        orders = [
+            Order(
+                order_id=o["order_id"],
+                station=o["station"],
+                destination=o.get("destination", "DZ"),
+                released_at=o.get("released_at", 0.0),
+                pick_dwell_s=o.get("pick_dwell_s", 2.0),
+                drop_dwell_s=o.get("drop_dwell_s", 2.0),
+            )
+            for o in order_specs
+        ]
+        forced_robot = {o["order_id"]: o["robot"] for o in order_specs if o.get("robot")}
+        orders.sort(key=lambda o: (o.released_at, o.order_id))
+
+        queued = {rid: len(r.tasks) for rid, r in world.robots.items()}
+        for order in orders:
+            pinned_robot = forced_robot.get(order.order_id)
+            if pinned_robot:
+                robot_id = pinned_robot
+            else:
+                snapshots = [
+                    RobotSnapshot(robot_id=rid, current_node=r.current_node,
+                                   queued_tasks=queued[rid])
+                    for rid, r in world.robots.items()
+                ]
+                robot_id = allocator.choose(order, snapshots, now=order.released_at).robot_id
+            for task in order_to_tasks(order):
+                world.assign_task(robot_id, task)
+            queued[robot_id] += 1
 
     return world, scenario
 

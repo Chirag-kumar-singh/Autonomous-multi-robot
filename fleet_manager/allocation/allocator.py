@@ -61,8 +61,8 @@ class Order:
     station: str
     destination: str = "DZ"
     released_at: float = 0.0
-    pick_dwell_s: float = 8.0
-    drop_dwell_s: float = 3.0
+    pick_dwell_s: float = 2.0
+    drop_dwell_s: float = 2.0
 
 
 @dataclass

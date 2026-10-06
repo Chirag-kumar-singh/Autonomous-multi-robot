@@ -99,12 +99,47 @@ def run_scenario(scenario_path: str | Path, verbose: bool = True) -> tuple[World
                 label=t.get("label", ""),
             ))
 
+    # Optional `stations:` shorthand: a plain list of station codes, e.g.
+    #     stations: [S5, S1, S2, S3, S6]
+    # is the absolute minimum input -- no order_id, no destination, no
+    # dwell/release timing, no robot. Each entry becomes one order
+    # (order_id auto-numbered O1, O2, ... in list order; destination
+    # defaults to "DZ"; released_at defaults to 0.0; dwell times use
+    # Order's own defaults; robot is chosen by the allocator).
+    #
+    # To pin a SPECIFIC robot to a specific order yourself (bypassing the
+    # allocator for just that order), use the object form instead of a
+    # plain string:
+    #     stations: [S5, {station: S1, robot: R2}, S2]
+    # Plain-string entries are still allocator-decided; only entries that
+    # explicitly name a `robot:` are forced. Expanded into the same
+    # `orders:` list the allocator path below already consumes -- no
+    # separate logic, no duplication.
+    station_shorthand = scenario.get("stations", [])
+    expanded_orders = []
+    for i, s in enumerate(station_shorthand):
+        if isinstance(s, dict):
+            expanded_orders.append({
+                "order_id": f"O{i + 1}", "station": s["station"],
+                "robot": s.get("robot"),
+            })
+        else:
+            expanded_orders.append({"order_id": f"O{i + 1}", "station": s})
+
     # Optional `orders:` section: run each order through FleetAllocator
     # (who gets the order) and hand the resulting pick/drop Task pair to
     # world.assign_task() exactly like a manually-authored `tasks:` entry.
     # This is a single pre-simulation allocation pass (orders are not
     # re-evaluated once the loop starts) -- not a live online scheduler.
-    order_specs = scenario.get("orders", [])
+    #
+    # Any order_spec (from `orders:` or `stations:`) may also carry an
+    # explicit `robot:` key -- if present, that order is installed DIRECTLY
+    # on the named robot, bypassing the allocator's choose() entirely for
+    # that one order (routing/reservations/execution are completely
+    # unaffected -- this only changes WHO, exactly like the manually
+    # authored `tasks:` section does, just expressed as an order instead
+    # of raw Task fields).
+    order_specs = scenario.get("orders", []) + expanded_orders
     allocated_tasks = 0
     if order_specs:
         allocator = FleetAllocator(
@@ -118,11 +153,12 @@ def run_scenario(scenario_path: str | Path, verbose: bool = True) -> tuple[World
                 station=o["station"],
                 destination=o.get("destination", "DZ"),
                 released_at=o.get("released_at", 0.0),
-                pick_dwell_s=o.get("pick_dwell_s", 8.0),
-                drop_dwell_s=o.get("drop_dwell_s", 3.0),
+                pick_dwell_s=o.get("pick_dwell_s", 2.0),
+                drop_dwell_s=o.get("drop_dwell_s", 2.0),
             )
             for o in order_specs
         ]
+        forced_robot = {o["order_id"]: o["robot"] for o in order_specs if o.get("robot")}
         orders.sort(key=lambda o: (o.released_at, o.order_id))
 
         # queued_tasks tracked locally so sequential orders in this batch
@@ -130,16 +166,20 @@ def run_scenario(scenario_path: str | Path, verbose: bool = True) -> tuple[World
         # World mid-pass -- robots have not moved yet at allocation time).
         queued = {rid: len(r.tasks) for rid, r in world.robots.items()}
         for order in orders:
-            snapshots = [
-                RobotSnapshot(robot_id=rid, current_node=r.current_node,
-                               queued_tasks=queued[rid])
-                for rid, r in world.robots.items()
-            ]
-            decision = allocator.choose(order, snapshots, now=order.released_at)
+            pinned_robot = forced_robot.get(order.order_id)
+            if pinned_robot:
+                robot_id = pinned_robot
+            else:
+                snapshots = [
+                    RobotSnapshot(robot_id=rid, current_node=r.current_node,
+                                   queued_tasks=queued[rid])
+                    for rid, r in world.robots.items()
+                ]
+                robot_id = allocator.choose(order, snapshots, now=order.released_at).robot_id
             for task in order_to_tasks(order):
-                world.assign_task(decision.robot_id, task)
+                world.assign_task(robot_id, task)
                 allocated_tasks += 1
-            queued[decision.robot_id] += 1
+            queued[robot_id] += 1
 
     dt = scenario.get("dt", 0.1)
     max_time_s = scenario.get("max_time_s", 200.0)

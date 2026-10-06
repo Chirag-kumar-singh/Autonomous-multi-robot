@@ -1,0 +1,33 @@
+# Minimal scenario: the LEAST input possible.
+#
+# Just list station codes under `stations:`. Everything else is fully
+# automatic:
+#   - order_id          -> auto-numbered O1, O2, O3, ... in list order
+#   - which robot       -> decided by FleetAllocator (nearest/least-loaded)
+#                          UNLESS you pin it yourself (see below)
+#   - destination       -> defaults to "DZ" (the single drop-off bay)
+#   - path/stops/route  -> computed by the planner (shortest path on the
+#                          arena graph), including junction waits, lane
+#                          reservations, and DZ queueing -- fully automatic
+#   - pick/drop dwell   -> defaults to 2.0s / 2.0s (fast sensor-confirm,
+#                          not a long human-paced dwell)
+#   - release time      -> defaults to 0.0 (available immediately)
+#
+# To choose WHICH ROBOT yourself for a particular order (instead of
+# letting the allocator decide), use the object form instead of a plain
+# station code:
+#     stations: [S5, {station: S1, robot: R2}, S2]
+# Only entries written as {station: ..., robot: ...} are pinned; plain
+# strings are still allocator-decided. You can mix both freely in the
+# same list.
+#
+# Run it:
+#   uv run python3 fleet_manager/simulation/simulator.py fleet_manager/tests/scenarios/minimal_stations.yaml
+#   uv run python3 fleet_manager/visualization/renderer.py fleet_manager/tests/scenarios/minimal_stations.yaml
+#
+# Robots default to their configured home/parking positions (no `robots:`
+# section needed either).
+stations:
+  - {station: S6, robot: R3}                              # allocator decides the robot
+  - {station: S3, robot: R2}        # you decide: R2 must do this one                              # allocator decides
+  - {station: S4, robot: R1}        # you decide: R1 must do this one                           # allocator decides

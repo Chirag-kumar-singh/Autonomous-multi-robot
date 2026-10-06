@@ -30,8 +30,8 @@ class GeneratedOrder:
     station: str
     destination: str = "DZ"
     released_at: float = 0.0
-    pick_dwell_s: float = 8.0
-    drop_dwell_s: float = 3.0
+    pick_dwell_s: float = 2.0
+    drop_dwell_s: float = 2.0
 
 
 @dataclass
@@ -55,8 +55,8 @@ def generate_batch(
     release_window_s: float = 60.0,
     stations: Optional[List[str]] = None,
     destination: str = "DZ",
-    pick_dwell_s: float = 8.0,
-    drop_dwell_s: float = 3.0,
+    pick_dwell_s: float = 2.0,
+    drop_dwell_s: float = 2.0,
 ) -> BatchSpec:
     """Deterministically generate `batch_size` orders:
       - station: uniformly random from `stations` (default: all of

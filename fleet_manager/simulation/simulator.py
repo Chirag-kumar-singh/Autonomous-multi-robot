@@ -23,6 +23,22 @@ Scenario YAML schema:
       R2: []
       R3: []
 
+Optionally, instead of (or in addition to) a manually-authored `tasks:`
+section, a scenario may provide an `orders:` section:
+
+    orders:
+      - {order_id: O1, station: S5, destination: DZ, released_at: 0,
+         pick_dwell_s: 8, drop_dwell_s: 3}
+
+Each order is run through fleet_manager.allocation.allocator.FleetAllocator
+(deterministic, distance + queue-length scoring -- see that module's
+docstring) to pick a robot, and the resulting pick/drop Task pair is
+handed to world.assign_task() exactly as a manually-authored `tasks:`
+entry would be. This is the ONLY wiring change made to this file to
+support allocation; World/Robot/planner/ReservationTable/FleetCoordinator
+are untouched, and the existing `tasks:` path is unchanged and still
+fully supported (including using both sections in the same scenario).
+
 This does NOT implement task allocation: which robot does which order is
 decided by whoever writes the scenario file (today, a human; later, the
 allocator module). The simulator only proves that, given an assignment +
@@ -39,6 +55,8 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "arena"))
 sys.path.insert(0, str(Path(__file__).parent.parent / "traffic"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "planning"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "allocation"))
 sys.path.insert(0, str(Path(__file__).parent))
 
 from arena_loader import load_arena_config
@@ -46,6 +64,7 @@ from graph import ArenaGraph
 from world import World
 from robot import Task
 from events import compute_metrics, print_report
+from allocator import FleetAllocator, Order, RobotSnapshot, order_to_tasks
 
 
 def run_scenario(scenario_path: str | Path, verbose: bool = True) -> tuple[World, "Metrics"]:
@@ -80,11 +99,53 @@ def run_scenario(scenario_path: str | Path, verbose: bool = True) -> tuple[World
                 label=t.get("label", ""),
             ))
 
+    # Optional `orders:` section: run each order through FleetAllocator
+    # (who gets the order) and hand the resulting pick/drop Task pair to
+    # world.assign_task() exactly like a manually-authored `tasks:` entry.
+    # This is a single pre-simulation allocation pass (orders are not
+    # re-evaluated once the loop starts) -- not a live online scheduler.
+    order_specs = scenario.get("orders", [])
+    allocated_tasks = 0
+    if order_specs:
+        allocator = FleetAllocator(
+            graph,
+            w_travel=scenario.get("allocator_w_travel", 1.0),
+            w_queue=scenario.get("allocator_w_queue", 1.0),
+        )
+        orders = [
+            Order(
+                order_id=o["order_id"],
+                station=o["station"],
+                destination=o.get("destination", "DZ"),
+                released_at=o.get("released_at", 0.0),
+                pick_dwell_s=o.get("pick_dwell_s", 8.0),
+                drop_dwell_s=o.get("drop_dwell_s", 3.0),
+            )
+            for o in order_specs
+        ]
+        orders.sort(key=lambda o: (o.released_at, o.order_id))
+
+        # queued_tasks tracked locally so sequential orders in this batch
+        # see each other's effect on load (deterministic, no re-reads of
+        # World mid-pass -- robots have not moved yet at allocation time).
+        queued = {rid: len(r.tasks) for rid, r in world.robots.items()}
+        for order in orders:
+            snapshots = [
+                RobotSnapshot(robot_id=rid, current_node=r.current_node,
+                               queued_tasks=queued[rid])
+                for rid, r in world.robots.items()
+            ]
+            decision = allocator.choose(order, snapshots, now=order.released_at)
+            for task in order_to_tasks(order):
+                world.assign_task(decision.robot_id, task)
+                allocated_tasks += 1
+            queued[decision.robot_id] += 1
+
     dt = scenario.get("dt", 0.1)
     max_time_s = scenario.get("max_time_s", 200.0)
 
     # count total tasks assigned, then track completions via event log
-    total_tasks = sum(len(v) for v in scenario.get("tasks", {}).values())
+    total_tasks = sum(len(v) for v in scenario.get("tasks", {}).values()) + allocated_tasks
 
     while world.t < max_time_s and not world.all_idle():
         world.step(dt)

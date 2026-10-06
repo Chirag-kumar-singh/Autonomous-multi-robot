@@ -31,6 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "arena"))
 sys.path.insert(0, str(Path(__file__).parent.parent / "traffic"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "planning"))
 sys.path.insert(0, str(Path(__file__).parent.parent / "simulation"))
 
 from arena_loader import load_arena_config

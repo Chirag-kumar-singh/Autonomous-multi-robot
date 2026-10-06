@@ -1,0 +1,71 @@
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent / "arena"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "traffic"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "planning"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "allocation"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "simulation"))
+
+from arena_loader import load_arena_config
+from graph import ArenaGraph
+from world import World
+from deadlock import detect_deadlocks
+from allocator_v2 import FleetAllocatorV2
+from allocator import Order, RobotSnapshot, order_to_tasks
+from scenario_generator import generate_batch
+import sys as _s
+
+seed = int(_s.argv[1]) if len(_s.argv) > 1 else 3
+n = int(_s.argv[2]) if len(_s.argv) > 2 else 20
+window = float(_s.argv[3]) if len(_s.argv) > 3 else 60.0
+
+cfg = load_arena_config()
+graph = ArenaGraph.from_config(cfg)
+world = World(graph, speed_cm_s=20.0)
+for rid, home in cfg.robot_homes.items():
+    world.add_robot(rid, home)
+
+batch = generate_batch(seed=seed, batch_size=n, release_window_s=window)
+allocator = FleetAllocatorV2(graph, speed_cm_s=20.0)
+for o in sorted(batch.orders, key=lambda o: (o.released_at, o.order_id)):
+    order = Order(order_id=o.order_id, station=o.station, destination=o.destination,
+                  released_at=o.released_at, pick_dwell_s=o.pick_dwell_s,
+                  drop_dwell_s=o.drop_dwell_s)
+    snapshots = [RobotSnapshot(robot_id=rid, current_node=r.current_node)
+                 for rid, r in world.robots.items()]
+    decision = allocator.choose(order, snapshots, now=order.released_at)
+    for task in order_to_tasks(order):
+        world.assign_task(decision.robot_id, task)
+
+dt = 0.1
+while world.t < 6000.0 and not world.all_idle():
+    world.step(dt)
+
+print(f"completed={world.all_idle()} t={world.t:.1f}")
+for rid, r in world.robots.items():
+    task = world._active_task.get(rid)
+    next_task = r.tasks[0].to if r.tasks else None
+    home = cfg.robot_homes.get(rid)
+    print(f"{rid}: state={r.state.value} node={r.current_node} home={home} "
+          f"active_task={(task.to, task.label) if task else None} "
+          f"next_task_to={next_task} num_tasks={len(r.tasks)} "
+          f"pending_reverse={world._pending_reverse.get(rid)}")
+print(f"node_lock: {world._node_lock}")
+print(f"dz_coordinator: holder={world.dz_coordinator.holder()} queue={world.dz_coordinator.pending()}")
+report = detect_deadlocks(world)
+print(f"wait_for: {report.wait_for}")
+print(f"cycles: {report.cycles}")
+
+from planner import plan_route
+for rid, r in world.robots.items():
+    if r.tasks and world._active_task.get(rid) is None:
+        dest = r.tasks[0].to
+        result = plan_route(graph, world.table, world._node_lock, rid,
+                             r.current_node, dest, world.t, r.speed_cm_s,
+                             dwell_s=r.tasks[0].dwell_s, dwell_purpose=r.tasks[0].purpose)
+        home = cfg.robot_homes.get(rid)
+        home_result = None
+        if home and home != r.current_node:
+            home_result = plan_route(graph, world.table, world._node_lock, rid,
+                                      r.current_node, home, world.t, r.speed_cm_s)
+        print(f"{rid}: plan_route(-> {dest}) = {result}; plan_route(-> home {home}) = {home_result}")

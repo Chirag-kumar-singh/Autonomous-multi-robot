@@ -63,6 +63,21 @@ class ReservationTable:
         self._by_id: Dict[str, Reservation] = {}
         self._resources: Dict[str, Resource] = dict(resources or {})
         self._next_id = 1
+        # Step (Gap B fix): explicit geometric-conflict links between
+        # DIFFERENT resource ids. Two resources are "linked" when they are
+        # topologically distinct (never the same reservation key) but
+        # physically close enough that a robot occupying one can violate
+        # the arena's min-separation distance from a robot occupying the
+        # other -- confirmed, for exactly 3 edge pairs in this arena, by
+        # forced-concurrency simulation (not inferred from angle alone;
+        # see the Gap B investigation). A linked pair behaves, for
+        # conflict-checking purposes ONLY, as if they were a single
+        # capacity-1 resource: reserving one also blocks the other for
+        # any OTHER robot during the overlapping interval. This is
+        # strictly additive -- resources with no registered link behave
+        # exactly as before, and nothing about resource identity, edge
+        # direction, capacity-N logic, or existing reservations changes.
+        self._linked: Dict[str, set] = {}
 
     # ------------------------------------------------------------------
     # Resource registry (optional but recommended: enables capacity checks
@@ -73,6 +88,16 @@ class ReservationTable:
 
     def register_resources(self, resources: Dict[str, Resource]):
         self._resources.update(resources)
+
+    def link_resources(self, resource_id_a: str, resource_id_b: str):
+        """Declare resource_id_a and resource_id_b as geometrically
+        conflicting: a reservation on either one is treated as also
+        occupying the other for conflict-checking purposes (symmetric).
+        Intended for a small, explicitly-validated set of edge pairs
+        (see Gap B) -- NOT a general substitute for capacity/geometry
+        modeling, and NOT applied automatically from topology."""
+        self._linked.setdefault(resource_id_a, set()).add(resource_id_b)
+        self._linked.setdefault(resource_id_b, set()).add(resource_id_a)
 
     def _capacity_of(self, resource_id: str) -> int:
         r = self._resources.get(resource_id)
@@ -104,6 +129,19 @@ class ReservationTable:
         ]
         capacity = self._capacity_of(resource_id)
         if capacity <= 1:
+            # Gap B fix: also treat any overlapping reservation on an
+            # explicitly-linked (geometrically conflicting) resource as a
+            # conflict for THIS resource too. Only applied for capacity-1
+            # resources -- every resource in this arena today, and the
+            # only case the 3 known links were validated against; a
+            # capacity>1 resource has no linked-resource semantics
+            # defined and none are registered for one here.
+            for linked_id in self._linked.get(resource_id, ()):
+                linked_existing = self._by_resource.get(linked_id, [])
+                overlapping += [
+                    r for r in linked_existing
+                    if r.overlaps(start, end) and r.robot_id != exclude_robot_id
+                ]
             return overlapping
         # crude multi-capacity check: distinct concurrently-overlapping robots
         distinct_robots = {r.robot_id for r in overlapping}

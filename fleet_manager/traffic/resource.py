@@ -56,6 +56,15 @@ def resources_from_graph(graph) -> dict[str, Resource]:
             # core skeleton node (corner, T-junction, or the central
             # junction) -- all are capacity-1 (or spec'd) single-lane cells
             kind = ResourceKind.JUNCTION
+        elif rid in graph.waypoints and graph.waypoints[rid].kind == "station_dock":
+            # station dock NODE resource (distinct from the DOCK-kind
+            # approach EDGE classified below): a robot can occupy this
+            # single-lane cell for an unbounded duration (dwell, or
+            # waiting on downstream admission before its next route is
+            # even planned), so it needs the same open-ended node-lock
+            # treatment as junctions/parking/DZ -- see world._is_core_node
+            # and graph.py's registration of this resource for why.
+            kind = ResourceKind.DOCK
         elif rid.startswith("DZ") and rid.endswith("_BAY"):
             kind = ResourceKind.DISPATCH
         elif rid in graph.cfg.parking:

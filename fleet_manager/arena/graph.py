@@ -181,6 +181,28 @@ class ArenaGraph:
             dock_id = f"{sid}_DOCK"
             self._add_waypoint(dock_id, st.dock["x"], st.dock["y"], "station_dock")
             stations_by_lane.setdefault(st.lane, []).append((dock_id, st.dock))
+            # A station dock is a physical 20x20cm single-lane cell a robot
+            # can occupy for an UNBOUNDED duration (dwell time, or -- the
+            # gap this fixes -- indefinitely while WAITING for downstream
+            # admission, e.g. the DZ single-server gate, before a route to
+            # its next task has even been planned). Every other node a
+            # robot can stop at and hold indefinitely (every core lane
+            # node above, every parking bay, the DZ bay below) is already
+            # registered as a capacity-1 Resource precisely so World's
+            # open-ended node-occupancy lock (_node_lock, keyed off
+            # resource kind -- see world._is_core_node) has something to
+            # claim. Station docks were the one exception, silently
+            # omitted from this registration -- meaning a robot parked
+            # indefinitely at a dock held NO lock at all, and the planner
+            # (which only ever consults world._node_lock, never robot
+            # positions directly) could not see it was occupied. This is
+            # the root cause of the random-batch collisions where a
+            # second robot's route passed straight through an
+            # indefinitely-occupied dock. Registering it here is the
+            # minimal fix: it slots into the exact same pre-existing
+            # mechanism every other dead-end/junction node already uses,
+            # with no new concept introduced.
+            self.resources[dock_id] = Resource(dock_id, capacity=1)
 
         for lane_id, (axis, anchors) in lane_defs.items():
             chain = [(a, core[a][0] if axis == "x" else core[a][1]) for a in anchors]

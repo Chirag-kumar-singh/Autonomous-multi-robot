@@ -204,45 +204,67 @@ class ArenaGraph:
             # with no new concept introduced.
             self.resources[dock_id] = Resource(dock_id, capacity=1)
 
+        # ------------------------------------------------------------
+        # Parking / DZ "foot" nodes: the perpendicular drop-point where a
+        # dead-end bay's stub meets its lane. CRITICAL: like station
+        # docks, a foot MUST be spliced INLINE into the lane's ordered
+        # anchor chain (splitting the lane into two sub-segments at that
+        # point), not merely connected via an extra edge back to the
+        # nearest existing anchor. Adding a redundant anchor->foot edge
+        # WITHOUT splitting the lane would create two separate resources
+        # both covering the same physical stretch of lane (the original
+        # full anchor-to-anchor edge, and the new overlapping anchor-to
+        # -foot edge) -- i.e. exactly the kind of untracked physical
+        # overlap the Gap B investigation exists to catch, except worse
+        # (full overlap, not just a close pass), and invisible to the
+        # reservation system since the two resources don't share an
+        # endpoint. Splicing like a dock avoids this by construction.
+        # ------------------------------------------------------------
+        feet_by_lane: Dict[str, list] = {}
+        bay_specs = [(pid, p.bay, p.lane, p.reverse_only) for pid, p in cfg.parking.items()]
+        dz = cfg.dispatch_zone
+        dz_bay_id = f"{dz.id}_BAY"
+        bay_specs.append((dz_bay_id, dz.bay, dz.lane, dz.reverse_only))
+
+        for node_id, bay_xy, lane_id, reverse_only in bay_specs:
+            kind = "dz_bay" if node_id == dz_bay_id else "parking"
+            self._add_waypoint(node_id, bay_xy["x"], bay_xy["y"], kind)
+            axis = "x" if lane_id in ("LANE_TOP", "LANE_BOTTOM") else "y"
+            # The foot's position along the lane's FIXED axis is derived
+            # generically from the lane's own definition (not from any
+            # single "nearest anchor"), so it is correct regardless of
+            # which two anchors end up bracketing it.
+            lane_fixed_coord = core[lane_defs[lane_id][1][0]][1 if axis == "x" else 0]
+            if axis == "x":
+                foot_x, foot_y = bay_xy["x"], lane_fixed_coord
+            else:
+                foot_x, foot_y = lane_fixed_coord, bay_xy["y"]
+            foot_id = f"{node_id}_FOOT"
+            self._add_waypoint(foot_id, foot_x, foot_y, "lane")
+            self.resources[foot_id] = Resource(foot_id, capacity=1)
+            feet_by_lane.setdefault(lane_id, []).append((foot_id, {"x": foot_x, "y": foot_y}))
+            # The perpendicular bay<->foot stub is a true dead-end leaf
+            # (the bay is not shared with any other feature), so adding
+            # it directly is safe -- it does not overlap any other edge.
+            self._add_lane_edge(foot_id, node_id, bidirectional=not reverse_only,
+                                 reverse_only=reverse_only)
+            if node_id == dz_bay_id:
+                self.resources[node_id] = Resource(node_id, dz.capacity)
+            else:
+                p = cfg.parking[node_id]
+                self.resources[node_id] = Resource(node_id, p.capacity)
+
         for lane_id, (axis, anchors) in lane_defs.items():
             chain = [(a, core[a][0] if axis == "x" else core[a][1]) for a in anchors]
             for dock_id, dock_xy in stations_by_lane.get(lane_id, []):
                 pos = dock_xy[axis]
                 chain.append((dock_id, pos))
+            for foot_id, foot_xy in feet_by_lane.get(lane_id, []):
+                pos = foot_xy[axis]
+                chain.append((foot_id, pos))
             chain.sort(key=lambda t: t[1])
             for (u, _), (v, _) in zip(chain, chain[1:]):
                 self._add_lane_edge(u, v)
-
-        # ------------------------------------------------------------
-        # Parking / DZ remain perpendicular stubs off the nearest core
-        # node: they are dead-end recesses (spec: "a recess cut into a
-        # block, off the lane"), not squares within the lane itself, so
-        # through-traffic never needs to pass through them and the
-        # nearest-anchor approximation does not hide any real conflict.
-        # ------------------------------------------------------------
-
-        # --- Parking: generic iteration ---
-        for pid, p in cfg.parking.items():
-            self._add_waypoint(pid, p.bay["x"], p.bay["y"], "parking")
-            nearest = self._nearest_node_on_lane(p.bay["x"], p.bay["y"], p.lane)
-            self._add_lane_edge(nearest, pid, bidirectional=not p.reverse_only,
-                                 reverse_only=p.reverse_only)
-            # Register the bay node itself as a capacity-1 (or spec'd)
-            # resource, same as DZ_BAY below: a robot can be physically
-            # parked here for an unbounded duration, so the simulator's
-            # open-ended node-occupancy lock (world._node_lock) needs a
-            # resource entry to key off, distinct from the timed
-            # ReservationTable entry covering the approach edge.
-            self.resources[pid] = Resource(pid, p.capacity)
-
-        # --- DZ ---
-        dz = cfg.dispatch_zone
-        bay_id = f"{dz.id}_BAY"
-        self._add_waypoint(bay_id, dz.bay["x"], dz.bay["y"], "dz_bay")
-        nearest = self._nearest_node_on_lane(dz.bay["x"], dz.bay["y"], dz.lane)
-        self._add_lane_edge(nearest, bay_id, bidirectional=not dz.reverse_only,
-                             reverse_only=dz.reverse_only)
-        self.resources[bay_id] = Resource(bay_id, dz.capacity)
 
     def _nearest_node_on_lane(self, x: float, y: float, lane_id: str) -> str:
         candidates = [n for n, lanes in self._core_lane_membership.items() if lane_id in lanes]

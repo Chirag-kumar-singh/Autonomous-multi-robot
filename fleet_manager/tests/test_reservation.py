@@ -237,8 +237,17 @@ def test_official_batch_resource_generation():
     # shortest-path planner a way out that a naive fixed-approach
     # heuristic would miss.
     table_naive = ReservationTable(resources_from_graph(graph))
-    forced_path_r1 = ["P1", "CORNER_TL", "T_TOP", "S1_DOCK"]
-    forced_path_r2 = ["P2", "CORNER_TR", "S5_DOCK", "T_TOP", "S1_DOCK", "JCT_CENTER", "S2_DOCK"]
+    # Perpendicular-geometry update: P1/P2 now attach to their lane via a
+    # spliced-in perpendicular foot node (P1_FOOT/P2_FOOT) instead of a
+    # direct diagonal edge to the corner -- see graph.py's bay-stub
+    # splicing. The forced paths below are updated to route through
+    # those foot nodes (the only physically valid route out of each
+    # bay); the "naive same-arm" trap being demonstrated (forcing both
+    # robots down the vertical cross lane to S1 en route to S2) is
+    # unaffected by this -- it's still the same lane-arm choice, just
+    # with the correct intermediate node added.
+    forced_path_r1 = ["P1", "P1_FOOT", "T_TOP", "S1_DOCK"]
+    forced_path_r2 = ["P2", "P2_FOOT", "S5_DOCK", "T_TOP", "S1_DOCK", "JCT_CENTER", "S2_DOCK"]
 
     def reserve_forced(table, robot_id, path, depart_time):
         intervals = route_to_intervals(

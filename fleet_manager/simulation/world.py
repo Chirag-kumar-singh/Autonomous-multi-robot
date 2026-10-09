@@ -53,27 +53,48 @@ class World:
         self.graph = graph
         resources = resources_from_graph(graph)
         self.table = ReservationTable(resources)
-        # Gap B fix: explicit geometric-conflict links for the 3 edge
-        # pairs confirmed, by forced-concurrency simulation (NOT inferred
-        # from angle alone -- several other shallow-angle candidates were
-        # tested and found safe), to allow two robots on DIFFERENT,
-        # topologically-non-conflicting resources to pass within the
-        # arena's min_separation_cm of each other. Each pair shares a
-        # junction/corner node where a dead-end parking bay's stub edge
-        # meets its lane at a shallow angle, and a robot reversing out of
-        # the bay can be geometrically close to another robot transiting
-        # past that same node on the lane edge. See the Gap A/Gap B
-        # investigation notes for the full derivation and the rejected
-        # candidates (angle alone is not a valid predictor -- several
-        # similarly shallow-angle pairs, e.g. around DZ_BAY/CORNER_BL and
-        # P1/CORNER_TL's OTHER lane neighbor, were simulated and found
-        # never to violate the threshold, and are deliberately NOT linked
-        # here). This is intentionally a small, explicit, validated list
-        # -- not a generalized geometry-aware collision layer -- so it
-        # does not reduce concurrency anywhere else in the arena.
-        self.table.link_resources("EDGE_T_BOTTOM_CORNER_BR", "EDGE_T_BOTTOM_P3")
-        self.table.link_resources("EDGE_CORNER_TL_T_TOP", "EDGE_CORNER_TL_P1")
-        self.table.link_resources("EDGE_S5_DOCK_CORNER_TR", "EDGE_CORNER_TR_P2")
+        # Gap B RE-DERIVATION (perpendicular bay-stub geometry, see
+        # fleet_manager/evaluation/gap_b_angle_analysis.py and
+        # gap_b_forced_concurrency.py): the original 3 links below were
+        # confirmed, by forced-concurrency simulation, for the OLD
+        # DIAGONAL parking/DZ stub geometry -- each was a shallow-angle
+        # (22.6-32.0 degree) convergence between a bay's stub edge and
+        # its lane at a shared corner/junction node, which kept two
+        # robots within the arena's 15cm min-separation threshold for an
+        # extended stretch of travel near that node.
+        #
+        # graph.py was changed to route every parking/DZ bay stub
+        # PERPENDICULAR to its lane via a spliced-in "foot" node (e.g.
+        # P1_FOOT), exactly like station docks already were. This
+        # eliminates the shallow-angle geometry outright: EVERY edge
+        # pair at every node in the new topology (checked exhaustively)
+        # is now either 90 degrees (lane-to-stub) or 180 degrees
+        # (straight through-lane), both comfortably above the shallowest
+        # angle already confirmed SAFE in this codebase (67.4 degrees --
+        # see test_reservation_linked_resources.py). A direct re-run of
+        # the same forced-concurrency methodology against the new
+        # topology (gap_b_forced_concurrency.py) found minimum
+        # center-to-center separations of 25-65cm at every former
+        # conflict site (P1_FOOT, P2_FOOT, P3_FOOT, DZ_BAY_FOOT) -- well
+        # above the 15cm threshold -- versus 12.8cm (a real violation)
+        # when the identical script/scenario was run against the OLD
+        # topology with these links stripped out, confirming the
+        # measurement methodology actually detects real conflicts when
+        # they exist.
+        #
+        # The old edge ids below (EDGE_T_BOTTOM_P3, EDGE_CORNER_TL_P1,
+        # EDGE_CORNER_TR_P2, and their lane-side partners) no longer
+        # exist in the topology at all -- parking/DZ now attach via
+        # *_FOOT nodes -- so these links are REMOVED rather than renamed
+        # or carried forward: no replacement links are required, because
+        # no conflicting geometry remains. If a future venue
+        # configuration (features.yaml) introduces a new shallow-angle
+        # bay placement, re-run gap_b_forced_concurrency.py /
+        # gap_b_angle_analysis.py against it before assuming safety.
+        #
+        # self.table.link_resources("EDGE_T_BOTTOM_CORNER_BR", "EDGE_T_BOTTOM_P3")        # OBSOLETE -- removed, see above
+        # self.table.link_resources("EDGE_CORNER_TL_T_TOP", "EDGE_CORNER_TL_P1")          # OBSOLETE -- removed, see above
+        # self.table.link_resources("EDGE_S5_DOCK_CORNER_TR", "EDGE_CORNER_TR_P2")        # OBSOLETE -- removed, see above
         # resource_id -> ResourceKind, used to exempt parking/DZ recess
         # edges from the keepout check: those recesses are legitimately
         # carved INTO the keep-out blocks per spec ("a recess cut into a
@@ -287,8 +308,9 @@ class World:
         currently sitting on a core lane node (corner/T-junction/central
         junction), automatically queue a trip back to its home parking
         bay instead of leaving it there. An idle robot squatting on a
-        through-node -- especially CORNER_BL, the DZ's only egress point
-        -- would permanently block every future robot needing that node
+        through-node -- especially DZ_BAY_FOOT, one of DZ's egress
+        approach nodes -- would permanently block every future robot
+        needing that node
         (this is a functional requirement, not politeness: spec says
         'reverse out ... and take the next order, or return to a parking
         bay', never 'stop in the lane').
@@ -453,7 +475,7 @@ class World:
         # must first be ADMITTED to the single-server DZ transaction
         # before even attempting to plan a route there. This is checked
         # BEFORE plan_route() so that a second robot is never allowed to
-        # start competing for CORNER_BL/DZ_BAY while another robot's
+        # start competing for DZ_BAY_FOOT/DZ_BAY while another robot's
         # transaction (approach -> drop -> reverse -> release) is still
         # in progress -- the planner alone cannot see this, since it only
         # evaluates feasibility against the CURRENT reservation snapshot,
@@ -578,7 +600,7 @@ class World:
                         # token here (as the DZ end-of-task branch does)
                         # would be wrong: it would free the single-server
                         # DZ admission slot for another queued robot
-                        # before this robot has even reached CORNER_BL,
+                        # before this robot has even reached DZ_BAY_FOOT,
                         # defeating the whole point of Step 5's gate. So,
                         # unlike the DZ-exit branch below, do NOT touch
                         # dz_coordinator here -- it is untouched/no-op
@@ -690,7 +712,7 @@ class World:
             # detour -- rather than only ever trying the single lowest-
             # id member. This generalization was required after V2
             # allocator experiments exposed a genuine 3-robot cycle
-            # (R1 holds the DZ admission token and wants CORNER_BL, held
+            # (R1 holds the DZ admission token and wants DZ_BAY_FOOT, held
             # by R2, who wants S5_DOCK, held by R3, who wants the DZ
             # token back from R1) where the deterministic lowest-id
             # victim (R1) had NO detour available (it was already

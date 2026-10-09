@@ -128,38 +128,48 @@ def test_link_resources_same_robot_can_still_reserve_both():
 
 
 # ---------------------------------------------------------------------
-# 2. World-level: the 3 confirmed pairs are actually linked in a real
-#    World instance (wiring regression -- catches accidental removal).
+# 2. World-level: GAP B RE-DERIVATION (perpendicular bay-stub geometry).
+#
+# The 3 links below were confirmed, by forced-concurrency simulation,
+# for the OLD DIAGONAL parking/DZ stub geometry (each a shallow 22.6-32
+# degree convergence between a bay stub and its lane at a shared corner/
+# junction node). graph.py now routes every parking/DZ bay stub
+# PERPENDICULAR to its lane via a spliced-in foot node (e.g. P1_FOOT),
+# exactly like station docks. This eliminates the shallow-angle geometry
+# outright: every edge pair at every node in the new topology is now
+# either 90 degrees (lane-to-stub) or 180 degrees (straight through-
+# lane) -- see fleet_manager/evaluation/gap_b_angle_analysis.py. A
+# direct re-run of the same forced-concurrency methodology against the
+# new topology (fleet_manager/evaluation/gap_b_forced_concurrency.py)
+# found minimum center-to-center separations of 25-65cm at every former
+# conflict site -- comfortably above the 15cm threshold -- confirming no
+# replacement links are required. The old edge ids
+# (EDGE_T_BOTTOM_P3, EDGE_CORNER_TL_P1, EDGE_CORNER_TR_P2, and their
+# lane-side partners) no longer exist in the topology at all.
 # ---------------------------------------------------------------------
-def test_world_links_the_three_confirmed_conflict_pairs():
+def test_world_has_no_linked_resources_under_perpendicular_geometry():
+    """The perpendicular bay-stub geometry eliminates every shallow-angle
+    convergence the original Gap B links existed to patch -- confirmed
+    by re-running the same forced-concurrency methodology against the
+    new topology (see gap_b_forced_concurrency.py). No link_resources()
+    calls should remain wired in World for this topology."""
     world = _make_world()
-    linked = world.table._linked  # internal, but this IS the wiring test
-    assert "EDGE_T_BOTTOM_P3" in linked.get("EDGE_T_BOTTOM_CORNER_BR", set())
-    assert "EDGE_CORNER_TL_P1" in linked.get("EDGE_CORNER_TL_T_TOP", set())
-    assert "EDGE_CORNER_TR_P2" in linked.get("EDGE_S5_DOCK_CORNER_TR", set())
-
-
-def test_world_does_not_link_the_confirmed_safe_pairs():
-    """Regression guard: must not over-broadly link every shallow-angle
-    pair near a bay stub -- only the 3 confirmed-by-simulation conflicts."""
-    world = _make_world()
-    linked = world.table._linked
-    assert "EDGE_CORNER_BL_DZ_BAY" not in linked.get("EDGE_CORNER_BL_T_BOTTOM", set())
-    assert "EDGE_CORNER_BL_DZ_BAY" not in linked.get("EDGE_CORNER_BL_T_LEFT", set())
-    assert "EDGE_CORNER_TL_P1" not in linked.get("EDGE_S6_DOCK_CORNER_TL", set())
-    assert "EDGE_CORNER_TR_P2" not in linked.get("EDGE_T_RIGHT_CORNER_TR", set())
-    assert "EDGE_T_BOTTOM_P3" not in linked.get("EDGE_T_BOTTOM_S2_DOCK", set())
+    assert world.table._linked == {}, (
+        f"expected no Gap-B links under perpendicular geometry, found: "
+        f"{world.table._linked}"
+    )
 
 
 # ---------------------------------------------------------------------
-# 3. End-to-end: the known T_BOTTOM/P3 reproduction no longer collides,
-#    driven through the full planner/World stack (not just the table).
+# 3. End-to-end: the former T_BOTTOM/P3 shallow-angle conflict site is
+#    now safe by GEOMETRY ALONE (no link_resources() needed), driven
+#    through the full planner/World stack.
 # ---------------------------------------------------------------------
-def test_t_bottom_p3_reproduction_no_longer_collides_end_to_end():
+def test_t_bottom_p3_foot_site_safe_without_any_linked_resources():
     world = _make_world()
-    world.add_robot("AWAY", "CORNER_BL")
+    world.add_robot("AWAY", "CORNER_BR")
     world.add_robot("TOWARD", "P3")
-    world.assign_task("AWAY", Task(to="CORNER_BR", dwell_s=0.0, purpose="transit"))
+    world.assign_task("AWAY", Task(to="T_BOTTOM", dwell_s=0.0, purpose="transit"))
     world.assign_task("TOWARD", Task(to="T_BOTTOM", dwell_s=0.0, purpose="transit"))
 
     min_sep = math.inf
@@ -172,31 +182,6 @@ def test_t_bottom_p3_reproduction_no_longer_collides_end_to_end():
 
     assert min_sep >= world.min_separation_cm
     assert not [v for v in world.safety_violations if v.kind == "collision"]
-
-
-def test_linked_pair_forces_serialization_not_silent_pass_through():
-    """Confirm the fix works via actual WAITING/serialization (the second
-    robot is forced to wait for the first to clear), not by some other
-    accidental side effect -- i.e. the two edges are genuinely treated as
-    mutually exclusive now."""
-    world = _make_world()
-    world.add_robot("AWAY", "CORNER_BL")
-    world.add_robot("TOWARD", "P3")
-    world.assign_task("AWAY", Task(to="CORNER_BR", dwell_s=0.0, purpose="transit"))
-    world.assign_task("TOWARD", Task(to="T_BOTTOM", dwell_s=0.0, purpose="transit"))
-
-    saw_toward_waiting_while_away_on_linked_edge = False
-    for _ in range(600):
-        world.step(0.1)
-        away, toward = world.robots["AWAY"], world.robots["TOWARD"]
-        away_leg = world._leg.get("AWAY", {})
-        if (away_leg.get("resource_id") == "EDGE_T_BOTTOM_CORNER_BR"
-                and toward.state.name == "WAITING"):
-            saw_toward_waiting_while_away_on_linked_edge = True
-        if world.all_idle():
-            break
-
-    assert saw_toward_waiting_while_away_on_linked_edge, (
-        "expected TOWARD to be serialized (WAITING) while AWAY occupies "
-        "the linked EDGE_T_BOTTOM_CORNER_BR resource"
-    )
+    # Confirm this safety result is NOT coming from an explicit link --
+    # there are none registered for this topology (test above).
+    assert world.table._linked == {}

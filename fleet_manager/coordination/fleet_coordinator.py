@@ -7,10 +7,14 @@ Problem this solves (NOT solved by the Step 4 planner):
     state and the CURRENT reservation/lock snapshot, it picks a feasible
     SPATIAL route. It has no concept of "the fleet" and cannot see that
     three robots are all about to converge on the same single-capacity
-    dead-end resource (DZ_BAY, reachable only via CORNER_BL). Increasing
-    the planner's k (number of alternative spatial routes considered)
-    cannot help, because every delivery route necessarily ends with the
-    same unavoidable final hop: CORNER_BL -> DZ_BAY. The planner correctly
+    dead-end resource (DZ_BAY, reachable via its perpendicular foot
+    node DZ_BAY_FOOT, which itself has TWO valid lane-side approaches
+    -- e.g. CORNER_BL or T_BOTTOM). Increasing the planner's k (number
+    of alternative spatial routes considered) cannot help with the
+    underlying bottleneck, because every delivery route necessarily
+    ends with the same unavoidable final hop into the single-capacity
+    DZ_BAY, regardless of which lane side was used to reach
+    DZ_BAY_FOOT. The planner correctly
     reports "feasible right now" for more than one robot simultaneously
     approaching that bottleneck, because each checks reservations/locks
     independently and does not know what the OTHER robots are about to
@@ -22,16 +26,18 @@ Problem this solves (NOT solved by the Step 4 planner):
 
 This module treats the ENTIRE DZ transaction --
 
-    approach CORNER_BL -> enter DZ_BAY -> drop -> reverse -> release
+    approach DZ_BAY_FOOT (via either lane side) -> enter DZ_BAY -> drop
+    -> reverse -> release
 
 -- as a single-server resource with its own FIFO admission queue, one
 level ABOVE individual node/edge reservations. Only one robot may be
 "in" this transaction at a time; a second robot that wants to start it
-must wait for a grant, not merely find CORNER_BL/DZ_BAY not yet taken by
-chance. This directly prevents the two-robot circular wait: a robot is
-never even allowed to START entering the DZ approach while another robot
-already holds the transaction, so the "A holds CORNER_BL, wants DZ_BAY;
-B holds DZ_BAY, wants CORNER_BL" shape can no longer occur.
+must wait for a grant, not merely find DZ_BAY_FOOT/DZ_BAY not yet taken
+by chance. This directly prevents the two-robot circular wait: a robot
+is never even allowed to START entering the DZ approach while another
+robot already holds the transaction, so the "A holds DZ_BAY_FOOT, wants
+DZ_BAY; B holds DZ_BAY, wants DZ_BAY_FOOT" shape can no longer occur --
+regardless of which lane side either robot used to reach DZ_BAY_FOOT.
 
 This is intentionally a GENERIC single-server FIFO coordinator (not DZ-
 specific in its implementation) so it stays reusable, but DZ_BAY is the

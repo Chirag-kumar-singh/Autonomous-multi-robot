@@ -114,6 +114,7 @@ class World:
             self._edge_lookup[(e.u, e.v)] = e
             self._edge_lookup[(e.v, e.u)] = e
 
+
         # per-robot leg timing state, kept out of the dataclass to avoid
         # polluting Robot's public/telemetry surface
         self._leg: Dict[str, dict] = {}
@@ -529,7 +530,7 @@ class World:
             # (driving forward INTO a dead-end recess is correct and
             # unchanged), only DEPARTURE from one.
             src_wp = self.graph.waypoints.get(r.current_node)
-            if src_wp is not None and src_wp.kind in ("parking", "dz_bay"):
+            if src_wp is not None and src_wp.kind in ("parking", "dz_bay", "station_dock"):
                 self._start_reverse_out(r, continue_path=True)
             else:
                 self._try_start_next_leg(r)
@@ -793,7 +794,7 @@ class World:
                 self._arrive(r)
             else:
                 src_wp = self.graph.waypoints.get(r.current_node)
-                if src_wp is not None and src_wp.kind in ("parking", "dz_bay"):
+                if src_wp is not None and src_wp.kind in ("parking", "dz_bay", "station_dock"):
                     self._start_reverse_out(r, continue_path=True)
                 else:
                     self._try_start_next_leg(r)
@@ -861,7 +862,7 @@ class World:
             self._arrive(r)
         else:
             src_wp = self.graph.waypoints.get(r.current_node)
-            if src_wp is not None and src_wp.kind in ("parking", "dz_bay"):
+            if src_wp is not None and src_wp.kind in ("parking", "dz_bay", "station_dock"):
                 self._start_reverse_out(r, continue_path=True)
             else:
                 self._try_start_next_leg(r)
@@ -875,17 +876,17 @@ class World:
     # ------------------------------------------------------------------
     def _in_recess(self, r: Robot) -> bool:
         """True if the robot is currently using (or last used) a
-        parking/dispatch recess edge -- these legitimately dip inside a
-        keepout block's rectangle, so they're exempt from the keepout
-        check. Ordinary lane/junction/station-dock travel is NOT exempt
-        (docks sit on the lane band itself, never truly inside a block)."""
+        parking/dispatch/station-dock recess edge -- these legitimately
+        dip inside a keepout block's rectangle (the station alcove itself,
+        per spec, is cut INTO the block), so they're exempt from the
+        keepout check. Ordinary lane/junction travel is NOT exempt."""
         leg = self._leg.get(r.id)
         if leg and "resource_id" in leg:
             kind = self._resource_kind.get(leg["resource_id"])
-            if kind in ("PARKING", "DISPATCH"):
+            if kind in ("PARKING", "DISPATCH", "DOCK"):
                 return True
         wp = self.graph.waypoints.get(r.current_node)
-        if wp is not None and wp.kind in ("parking", "dz_bay"):
+        if wp is not None and wp.kind in ("parking", "dz_bay", "station_dock"):
             return True
         return False
 

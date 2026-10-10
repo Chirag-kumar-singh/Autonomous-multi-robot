@@ -246,8 +246,9 @@ def test_official_batch_resource_generation():
     # robots down the vertical cross lane to S1 en route to S2) is
     # unaffected by this -- it's still the same lane-arm choice, just
     # with the correct intermediate node added.
-    forced_path_r1 = ["P1", "P1_FOOT", "T_TOP", "S1_DOCK"]
-    forced_path_r2 = ["P2", "P2_FOOT", "S5_DOCK", "T_TOP", "S1_DOCK", "JCT_CENTER", "S2_DOCK"]
+    forced_path_r1 = ["P1", "P1_FOOT", "T_TOP", "S1_DOCK_FOOT", "S1_DOCK"]
+    forced_path_r2 = ["P2", "P2_FOOT", "S5_DOCK_FOOT", "T_TOP", "S1_DOCK_FOOT",
+                      "JCT_CENTER", "S2_DOCK_FOOT", "S2_DOCK"]
 
     def reserve_forced(table, robot_id, path, depart_time):
         intervals = route_to_intervals(

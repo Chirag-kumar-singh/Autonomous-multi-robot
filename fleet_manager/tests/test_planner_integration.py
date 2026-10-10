@@ -65,16 +65,20 @@ def test_A_existing_simple_scenario_still_completes():
 
 
 def test_B_shortest_path_blocked_world_selects_alternative():
-    """Pre-reserve the first edge of S3_DOCK->DZ_BAY's shortest path for a
+    """Pre-reserve the first edge of S3_DOCK_FOOT->DZ_BAY's shortest path for a
     different robot, for the ENTIRE duration the task-starting robot
     would need it, then confirm World actually drives the task-assigned
     robot along a DIFFERENT path (not just that the task eventually
-    completes). S3_DOCK->DZ_BAY is chosen specifically because its
+    completes). S3_DOCK itself is now a dead-end leaf (single edge to
+    S3_DOCK_FOOT, like a parking bay) -- blocking ITS one-and-only edge
+    would have no alternative by construction, so this scenario starts
+    from the FOOT node (a real multi-neighbor lane junction) instead.
+    S3_DOCK_FOOT->DZ_BAY is chosen specifically because its
     2nd-shortest-simple-path candidate diverges on the very first edge
-    (S3_DOCK->JCT_CENTER instead of S3_DOCK->T_LEFT), so the alternative
-    is reachable within the planner's default k=3 candidates."""
+    (S3_DOCK_FOOT->JCT_CENTER instead of S3_DOCK_FOOT->T_LEFT), so the
+    alternative is reachable within the planner's default k=3 candidates."""
     world = _make_world()
-    shortest = world.graph.shortest_path("S3_DOCK", "DZ_BAY")
+    shortest = world.graph.shortest_path("S3_DOCK_FOOT", "DZ_BAY")
     first_edge = next(e for e in world.graph.edges
                        if {e.u, e.v} == {shortest[0], shortest[1]})
 
@@ -82,7 +86,7 @@ def test_B_shortest_path_blocked_world_selects_alternative():
     # non-participating robot id) so plan_route() cannot select it.
     world.table.reserve(first_edge.resource_id, "R_BLOCKER", start=0.0, end=500.0)
 
-    world.add_robot("R1", "S3_DOCK")
+    world.add_robot("R1", "S3_DOCK_FOOT")
     world.assign_task("R1", Task(to="DZ_BAY", dwell_s=0.0, purpose="drop"))
 
     dt = 0.1

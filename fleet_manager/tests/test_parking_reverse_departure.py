@@ -158,7 +158,12 @@ def test_arrival_at_a_different_parking_bay_uses_forward_moving():
     """A robot routed TO a parking bay it does not start at must drive in
     forward (MOVING), never REVERSING -- only departure reverses."""
     world = _make_world()
-    world.add_robot("R1", "S1_DOCK")
+    # Start at an ordinary lane node, not S1_DOCK: station docks are now
+    # perpendicular dead-end stubs too (like parking/DZ), so starting AT
+    # one would trigger the SAME Gap-A reverse-out-on-departure behavior
+    # being deliberately excluded here -- this test is specifically about
+    # ARRIVAL at P1, which must never reverse.
+    world.add_robot("R1", "T_TOP")
     world.assign_task("R1", Task(to="P1", dwell_s=0.0, purpose="transit"))
 
     saw_moving = False

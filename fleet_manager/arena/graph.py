@@ -175,16 +175,62 @@ class ArenaGraph:
             "LANE_RIGHT": ("y", ["CORNER_BR", "T_RIGHT", "CORNER_TR"]),
         }
 
-        # station dock nodes, grouped by lane, to be spliced into anchors
+        # Direction (dx, dy) a station's declared `face` points FROM the
+        # dock-on-the-lane TOWARD the block interior it is cut into, e.g.
+        # face "east" means the alcove is cut into the block's east wall
+        # (the block sits to the WEST of the lane approach), so nudging
+        # INTO the block means moving in -x. Derived once, generically,
+        # from the same face/alcove_depth_cm fields features.yaml already
+        # declares for documentation -- no new config needed.
+        FACE_TO_OFFSET = {
+            "north": (0.0, -1.0),
+            "south": (0.0, 1.0),
+            "east": (-1.0, 0.0),
+            "west": (1.0, 0.0),
+        }
+
+        # Station docks, grouped by lane, to be spliced into anchors --
+        # EXCEPT each station now splices in its lane-side "foot" node
+        # (which stays exactly at the lane position features.yaml
+        # declares), not the dock itself. The actual dock -- where the
+        # robot stops to pick/drop -- is a perpendicular dead-end leaf off
+        # the foot, nudged into the block along the station's `face`
+        # direction, mirroring exactly how parking/DZ bays already attach
+        # via their own *_FOOT nodes below (same Gap-B-style
+        # perpendicular-stub geometry, same reasoning: a perpendicular
+        # stub is always either 90 degrees or 180 degrees off the lane,
+        # never the shallow-angle diagonal that caused the original Gap B
+        # near-miss).
+        #
+        # Node-placement depth is alcove_depth_cm + DOCK_VISUAL_EXTRA_CM,
+        # NOT alcove_depth_cm alone: alcove_depth_cm (10cm per spec) is
+        # the pick-mechanism's lateral reach and is kept unchanged/
+        # unaliased everywhere else (features.yaml, StationConfig) since
+        # it has that separate physical meaning. DOCK_VISUAL_EXTRA_CM is
+        # an additional, purely-geometric nudge (requested: push the dock
+        # node itself visibly further into the block than the alcove
+        # reach alone would place it) that only affects where the DOCK
+        # waypoint/node is drawn and routed to -- it does not change the
+        # spec's alcove_depth_cm value or any pick-mechanism reach logic.
+        DOCK_VISUAL_EXTRA_CM = 10.0
         stations_by_lane: Dict[str, list] = {}
         for sid, st in cfg.stations.items():
+            foot_id = f"{sid}_DOCK_FOOT"
             dock_id = f"{sid}_DOCK"
-            self._add_waypoint(dock_id, st.dock["x"], st.dock["y"], "station_dock")
-            stations_by_lane.setdefault(st.lane, []).append((dock_id, st.dock))
+            self._add_waypoint(foot_id, st.dock["x"], st.dock["y"], "lane")
+            self.resources[foot_id] = Resource(foot_id, capacity=1)
+            stations_by_lane.setdefault(st.lane, []).append((foot_id, st.dock))
+
+            dx, dy = FACE_TO_OFFSET[st.face]
+            dock_depth = st.alcove_depth_cm + DOCK_VISUAL_EXTRA_CM
+            dock_x = st.dock["x"] + dx * dock_depth
+            dock_y = st.dock["y"] + dy * dock_depth
+            self._add_waypoint(dock_id, dock_x, dock_y, "station_dock")
             # A station dock is a physical 20x20cm single-lane cell a robot
             # can occupy for an UNBOUNDED duration (dwell time, or -- the
             # gap this fixes -- indefinitely while WAITING for downstream
             # admission, e.g. the DZ single-server gate, before a route to
+
             # its next task has even been planned). Every other node a
             # robot can stop at and hold indefinitely (every core lane
             # node above, every parking bay, the DZ bay below) is already
@@ -203,6 +249,15 @@ class ArenaGraph:
             # mechanism every other dead-end/junction node already uses,
             # with no new concept introduced.
             self.resources[dock_id] = Resource(dock_id, capacity=1)
+            # The perpendicular foot<->dock stub is a true dead-end leaf
+            # (the dock is not shared with any other feature), exactly
+            # like a parking/DZ bay's foot<->bay stub below -- safe to
+            # add directly, reverse_only since the alcove is a recess a
+            # robot must back out of (same physical constraint already
+            # modeled for parking/DZ; world.py's existing dead-end
+            # departure/reverse-out logic is extended to station_dock
+            # nodes alongside parking/dz_bay to match).
+            self._add_lane_edge(foot_id, dock_id, bidirectional=False, reverse_only=True)
 
         # ------------------------------------------------------------
         # Parking / DZ "foot" nodes: the perpendicular drop-point where a

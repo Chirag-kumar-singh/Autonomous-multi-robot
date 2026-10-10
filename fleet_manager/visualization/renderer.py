@@ -44,6 +44,7 @@ renderer runs without error):
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 from pathlib import Path
 from typing import Callable, Optional, Tuple
@@ -215,12 +216,12 @@ class ArenaRenderer:
             matplotlib.use(matplotlib_backend)
         import matplotlib.pyplot as plt
         from matplotlib.widgets import Button
-        from matplotlib.patches import Rectangle, Circle, FancyArrow
+        from matplotlib.patches import Rectangle, RegularPolygon, FancyArrow
         from matplotlib.lines import Line2D
         self.plt = plt
         self.Button = Button
         self.Rectangle = Rectangle
-        self.Circle = Circle
+        self.RegularPolygon = RegularPolygon
         self.FancyArrow = FancyArrow
         self.Line2D = Line2D
 
@@ -311,10 +312,20 @@ class ArenaRenderer:
 
         for rid, r in self.world.robots.items():
             color = self._robot_colors[rid]
-            circ = self.Circle((r.x, r.y), radius=7.5, facecolor=color,
-                                edgecolor="black", linewidth=1.5, zorder=5)
-            self.ax.add_patch(circ)
-            self._robot_patches[rid] = circ
+            # Triangle marker: the pointed vertex indicates r.heading_deg
+            # (the robot's facing/"nose" direction, maintained in World --
+            # updated while MOVING, frozen while REVERSING so it keeps
+            # pointing the way it was facing before backing up). This lets
+            # a viewer see at a glance whether a robot is driving forward
+            # (solid triangle pointing along its route) or backing up
+            # (dashed/hatched triangle, nose pointing opposite its motion).
+            tri = self.RegularPolygon(
+                (r.x, r.y), numVertices=3, radius=9,
+                orientation=math.radians(r.heading_deg - 90),
+                facecolor=color, edgecolor="black", linewidth=1.5, zorder=5,
+            )
+            self.ax.add_patch(tri)
+            self._robot_patches[rid] = tri
             label = self.ax.text(r.x, r.y + 12, rid, ha="center", fontsize=9,
                                   fontweight="bold", zorder=6)
             self._robot_labels[rid] = label
@@ -405,14 +416,25 @@ class ArenaRenderer:
     def _redraw_dynamic(self):
         world = self.world
         for rid, r in world.robots.items():
-            circ = self._robot_patches[rid]
-            circ.center = (r.x, r.y)
-            circ.set_edgecolor(
+            tri = self._robot_patches[rid]
+            tri.xy = (r.x, r.y)
+            tri.orientation = math.radians(r.heading_deg - 90)
+            tri.set_edgecolor(
                 "#d62728" if r.state in (RobotState.WAITING, RobotState.BLOCKED)
                 else "black"
             )
-            circ.set_linewidth(3.0 if r.state == RobotState.WAITING else
-                                (4.0 if r.state == RobotState.BLOCKED else 1.5))
+            tri.set_linewidth(3.0 if r.state == RobotState.WAITING else
+                               (4.0 if r.state == RobotState.BLOCKED else 1.5))
+            # Reversing robots get a dashed outline + hatch so the
+            # forward-pointing nose is visibly at odds with the backward
+            # motion along the route line -- distinct from the solid
+            # triangle used for normal forward MOVING.
+            if r.state == RobotState.REVERSING:
+                tri.set_linestyle("dashed")
+                tri.set_hatch("///")
+            else:
+                tri.set_linestyle("solid")
+                tri.set_hatch(None)
             self._robot_labels[rid].set_position((r.x, r.y + 12))
             self._robot_labels[rid].set_text(f"{rid} [{r.state.value}]")
 

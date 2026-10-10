@@ -54,7 +54,12 @@ def test_no_reservations_returns_shortest_path():
 
 def test_shortest_path_blocked_returns_alternative():
     graph, table = _make_graph_and_table()
-    shortest = graph.shortest_path("S5_DOCK", "DZ_BAY")
+    # S5_DOCK itself is a dead-end leaf (single incident edge, off
+    # S5_DOCK_FOOT, like a parking bay) -- blocking its one-and-only edge
+    # has no alternative by construction, so this "blocked -> alternative
+    # exists" scenario must depart from the FOOT node (a real multi-
+    # neighbor lane junction) instead.
+    shortest = graph.shortest_path("S5_DOCK_FOOT", "DZ_BAY")
 
     # Block the FIRST edge of the shortest path for a different robot,
     # covering a wide enough window that R1's planned departure at t=0
@@ -65,7 +70,7 @@ def test_shortest_path_blocked_returns_alternative():
 
     result = plan_route(
         graph, table, node_lock={}, robot_id="R1",
-        src="S5_DOCK", dst="DZ_BAY", depart_time=0.0, speed_cm_s=20.0, k=5,
+        src="S5_DOCK_FOOT", dst="DZ_BAY", depart_time=0.0, speed_cm_s=20.0, k=5,
     )
     assert result is not None
     assert result.path != shortest, (
@@ -114,7 +119,9 @@ def test_multiple_alternatives_blocked_returns_none():
 
 def test_future_reservation_conflict_chooses_feasible_alternative():
     graph, table = _make_graph_and_table()
-    shortest = graph.shortest_path("S5_DOCK", "DZ_BAY")
+    # Same dead-end-leaf reasoning as test_shortest_path_blocked_returns_
+    # alternative above: depart from the FOOT node, not the dock itself.
+    shortest = graph.shortest_path("S5_DOCK_FOOT", "DZ_BAY")
     first_edge = next(e for e in graph.edges
                        if {e.u, e.v} == {shortest[0], shortest[1]})
 
@@ -131,7 +138,7 @@ def test_future_reservation_conflict_chooses_feasible_alternative():
 
     result = plan_route(
         graph, table, node_lock={}, robot_id="R1",
-        src="S5_DOCK", dst="DZ_BAY", depart_time=0.0, speed_cm_s=20.0, k=5,
+        src="S5_DOCK_FOOT", dst="DZ_BAY", depart_time=0.0, speed_cm_s=20.0, k=5,
     )
     assert result is not None
     used_resources = {iv.resource_id for iv in result.intervals}

@@ -152,7 +152,13 @@ def test_world_has_no_linked_resources_under_perpendicular_geometry():
     convergence the original Gap B links existed to patch -- confirmed
     by re-running the same forced-concurrency methodology against the
     new topology (see gap_b_forced_concurrency.py). No link_resources()
-    calls should remain wired in World for this topology."""
+    calls should remain wired in World for this topology: parking (30cm)
+    and DZ (60cm) stub depth alone is comfortably above the 15cm
+    separation threshold, and station docks (alcove_depth_cm=10cm plus a
+    DOCK_VISUAL_EXTRA_CM=10cm placement nudge, see graph.py -- 20cm
+    total stub length) are likewise comfortably above it (confirmed by
+    forced-concurrency measurement: min_sep=20.00cm at every station's
+    foot node), so no explicit links are needed for stations either."""
     world = _make_world()
     assert world.table._linked == {}, (
         f"expected no Gap-B links under perpendicular geometry, found: "
